@@ -1,0 +1,40 @@
+{
+  "sourceSha256": "10ad4ea98d2d8cbf9d39408962be9eab8ba2e24d7413018266ec8c86d7f33557",
+  "importerVersion": "2026-10-16-v1",
+  "database": "naitimastera",
+  "port": 55433,
+  "persistentVolumes": true,
+  "accounts": 4204,
+  "contractorProfiles": 3214,
+  "orders": { "total": 1019, "published": 684, "draft": 334, "inProgress": 1 },
+  "bids": { "current": 2869, "sourceVersionsIncludingCurrent": 3137 },
+  "historicalReviews": 17,
+  "unifiedReviewRating": {
+    "positiveReviews": 2,
+    "positiveScore": 5,
+    "negativeReviews": 15,
+    "negativeScore": 2,
+    "ratedProfilesVerified": 13,
+    "includedInPublicFeedAndAverage": true,
+    "legacyActivityPointsIncluded": false
+  },
+  "historicalBidMessages": 465,
+  "historicalBidMessagesAvailableInPrivateApi": 462,
+  "historicalBidMessagesWithoutReliableBid": 3,
+  "excluded": { "orders": 63, "bids": 86, "orderFileReferences": 12, "bidMessages": 16 },
+  "files": {
+    "ready": 1184,
+    "order": 418,
+    "profileAvatar": 765,
+    "portfolio": 1,
+    "skippedExternalOrUnsafe": 510,
+    "skippedUnsupportedOrInvalid": 15,
+    "skippedMissing": 2
+  },
+  "createdSessions": 0,
+  "queuedNotifications": 0,
+  "apiCountsVerified": true,
+  "apiDownloadVerified": true,
+  "repeatImportVerified": true,
+  "sourceModified": false
+}

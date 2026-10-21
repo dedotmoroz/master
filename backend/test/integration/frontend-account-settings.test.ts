@@ -1,0 +1,58 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {resolve} from 'node:path';
+import {Pool} from 'pg';
+import {createApplication} from '../../src/app/create-application.ts';
+import {loadConfig} from '../../src/app/config.ts';
+import {runMigrations} from '../../src/adapters/out/postgres/migrations.ts';
+import {PgDatabase} from '../../src/adapters/out/postgres/database.ts';
+import {HmacVerificationTokenService,PgSessionIssuer} from '../../src/adapters/out/security/crypto-services.ts';
+import {accountSettingsApi,AccountActionError,confirmAccountAction} from '../../../frontend/lib/account-settings.ts';
+import {authTransport,AuthError} from '../../../frontend/lib/auth.ts';
+import {SessionController,SESSION_KEY} from '../../../frontend/lib/session.ts';
+import {captureOpenApiResponseValidation} from '../helpers/openapi-response-validation.ts';
+
+test('frontend account settings: email change, unrelated session safety, revoke-all and guarded deletion on real PostgreSQL',{skip:!process.env.TEST_DATABASE_URL},async context=>{
+  const schema=`frontend_settings_${randomUUID().replaceAll('-','_')}`;const admin=new Pool({connectionString:process.env.TEST_DATABASE_URL});await admin.query(`CREATE SCHEMA ${schema}`);
+  const url=new URL(process.env.TEST_DATABASE_URL!);url.searchParams.set('options',`-c search_path=${schema}`);const pool=new Pool({connectionString:url.toString()});const original=globalThis.fetch;let app:Awaited<ReturnType<typeof createApplication>>|undefined;
+  context.after(async()=>{globalThis.fetch=original;await app?.close();await pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();});
+  await runMigrations(pool,resolve('migrations'));const secret='frontend-account-settings-test-secret-32-bytes';
+  app=await createApplication(loadConfig({NODE_ENV:'test',DATABASE_URL:url.toString(),VERIFICATION_TOKEN_SECRET:secret,RUN_MIGRATIONS_ON_START:'false'}));const server=app.server;const verify=captureOpenApiResponseValidation(server);context.after(()=>verify());
+  globalThis.fetch=async(input,options)=>{const response=await server.inject({method:options?.method as 'GET'|'POST'|'DELETE',url:String(input),headers:options?.headers as Record<string,string>,...(options?.body?{payload:String(options.body)}:{})});return new Response(response.statusCode===204?null:response.body,{status:response.statusCode,headers:response.headers as Record<string,string>});};
+  const owner=randomUUID(),other=randomUUID();const db=new PgDatabase(pool),issuer=new PgSessionIssuer(db,{now:()=>new Date()}),tokens=new HmacVerificationTokenService(secret);
+  for(const [id,email]of[[owner,'settings-old@example.com'],[other,'settings-other@example.com']])await pool.query("INSERT INTO accounts(id,email,status,created_at) VALUES($1,$2,'active',now())",[id,email]);
+  const token=await issuer.issue(owner),second=await issuer.issue(owner),foreign=await issuer.issue(other);
+  function session(value:string){const data=new Map([[SESSION_KEY,value]]);const controller=new SessionController(()=>({getItem:key=>data.get(key)??null,setItem:(key,value)=>{data.set(key,value);},removeItem:key=>{data.delete(key);}}),authTransport);return {data,controller};}
+  const own=session(token),unrelated=session(foreign);await own.controller.restore();await unrelated.controller.restore();
+  await assert.rejects(accountSettingsApi.requestEmail(token,'settings-other@example.com'),e=>e instanceof AccountActionError&&e.code==='EMAIL_ALREADY_IN_USE');
+  await assert.rejects(accountSettingsApi.requestEmail(token,'settings-old@example.com'),e=>e instanceof AccountActionError&&e.code==='EMAIL_UNCHANGED');
+  const changeToken=async()=>{const row=await pool.query<{id:string}>("SELECT id FROM email_change_requests WHERE account_id=$1 AND status='pending'",[owner]);return tokens.issue(`email-change:${row.rows[0]!.id}`).raw;};
+  await accountSettingsApi.requestEmail(token,'settings-intermediate@example.com');const obsolete=await changeToken();
+  await accountSettingsApi.requestEmail(token,'settings-new@example.com');const change=await changeToken();
+  await assert.rejects(accountSettingsApi.confirm('email-change',obsolete),e=>e instanceof AccountActionError&&e.status===404);
+  await confirmAccountAction('email-change',change,unrelated.controller);assert.equal(unrelated.controller.getSnapshot().account?.id,other);assert.equal(unrelated.data.get(SESSION_KEY),foreign);
+  await own.controller.restore();assert.equal(own.controller.getSnapshot().account,null);assert.equal(own.data.has(SESSION_KEY),false);
+  for(const old of [token,second])await assert.rejects(authTransport.me(old),e=>e instanceof AuthError&&e.status===401);
+  await assert.rejects(accountSettingsApi.confirm('email-change',change),AccountActionError);
+  await authTransport.request('login','settings-new@example.com');const login=await pool.query<{id:string}>("SELECT id FROM email_auth_requests WHERE email='settings-new@example.com' AND status='pending'");
+  await own.controller.establish(()=>authTransport.confirm('login',tokens.issue(`email-auth:${login.rows[0]!.id}`).raw));assert.equal(own.controller.getSnapshot().account?.email,'settings-new@example.com');assert.equal(own.controller.getSnapshot().account?.id,owner);
+  const current=own.data.get(SESSION_KEY)!;const order=randomUUID();
+  await pool.query("INSERT INTO orders(id,customer_id,category_id,location_id,title,description,status,created_at,published_at) VALUES($1,$2,'house-building','ru-locality-1','Work','Description','published',now(),now())",[order,owner]);
+  const bid=randomUUID();await pool.query("INSERT INTO bids(id,order_id,contractor_id,message,visibility,status,submitted_at,decided_at) VALUES($1,$2,$3,'Offer','private','selected',now(),now())",[bid,order,other]);
+  await pool.query("UPDATE orders SET status='in_progress',selected_bid_id=$1,contractor_id=$2 WHERE id=$3",[bid,other,order]);
+  await assert.rejects(accountSettingsApi.requestDeletion(current),e=>e instanceof AccountActionError&&e.code==='ACCOUNT_HAS_ONGOING_ORDERS');
+  await assert.rejects(accountSettingsApi.requestDeletion(foreign),e=>e instanceof AccountActionError&&e.code==='ACCOUNT_HAS_ONGOING_ORDERS');
+  await pool.query("UPDATE orders SET status='completed',completed_at=now() WHERE id=$1",[order]);
+  await accountSettingsApi.requestDeletion(current);
+  const deletionToken=async()=>{const row=await pool.query<{id:string}>("SELECT id FROM account_deletion_requests WHERE account_id=$1 AND status='pending'",[owner]);return tokens.issue(`account-deletion:${row.rows[0]!.id}`).raw;};
+  const deletion=await deletionToken();
+  await pool.query("UPDATE orders SET status='in_progress',completed_at=NULL WHERE id=$1",[order]);
+  await assert.rejects(accountSettingsApi.confirm('account-deletion',deletion),e=>e instanceof AccountActionError&&e.code==='ACCOUNT_HAS_ONGOING_ORDERS');
+  await pool.query("UPDATE orders SET status='completed',completed_at=now() WHERE id=$1",[order]);
+  await confirmAccountAction('account-deletion',deletion,own.controller);assert.equal(own.controller.getSnapshot().account,null);assert.equal(own.data.has(SESSION_KEY),false);
+  assert.equal((await pool.query('SELECT status FROM accounts WHERE id=$1',[owner])).rows[0].status,'deleted');assert.equal((await pool.query('SELECT status FROM orders WHERE id=$1',[order])).rows[0].status,'completed');
+  assert.equal((await authTransport.me(foreign)).id,other);await assert.rejects(accountSettingsApi.confirm('account-deletion',deletion),AccountActionError);
+  // Revoke-all remains an explicit server action and invalidates both sessions.
+  const otherSession=await issuer.issue(other);await unrelated.controller.logout(true);assert.equal(unrelated.controller.getSnapshot().account,null);for(const value of [foreign,otherSession])await assert.rejects(authTransport.me(value),AuthError);
+});

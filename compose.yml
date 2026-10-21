@@ -1,0 +1,37 @@
+name: naitimastera-app
+
+# Application containers only. PostgreSQL, S3 and ClamAV are external dependencies.
+# Existing local data volumes are NOT created, replaced or removed here.
+services:
+  backend:
+    build:
+      context: ./backend
+    image: naitimastera-backend:local
+    env_file: ./backend/.env.docker
+    ports:
+      - "127.0.0.1:3002:3000"
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
+    image: naitimastera-frontend:local
+    environment:
+      API_UPSTREAM: backend:3000
+    ports:
+      - "127.0.0.1:8080:8080"
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    # Frontend can start on its own; failed API requests do not prevent static delivery.

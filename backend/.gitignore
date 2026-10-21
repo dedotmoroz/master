@@ -1,0 +1,15 @@
+node_modules/
+coverage/
+backups/
+dist/
+.env
+.env.*
+!.env.example
+!.env.docker.example
+*.log
+.DS_Store
+
+# Never commit legacy production data or uploaded files.
+../naitimastera.sql
+../naitimastera/datas/
+../naitimastera/img_cache/

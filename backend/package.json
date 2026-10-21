@@ -1,0 +1,46 @@
+{
+  "name": "naitimastera-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/main.ts",
+    "dev": "node --watch --env-file-if-exists=.env src/main.ts",
+    "test": "node --test test/domain/**/*.test.ts test/application/**/*.test.ts test/adapters/**/*.test.ts test/app/**/*.test.ts",
+    "test:coverage": "node --test --experimental-test-coverage test/domain/**/*.test.ts test/application/**/*.test.ts test/adapters/**/*.test.ts test/app/**/*.test.ts",
+    "test:integration": "node --test test/integration/**/*.test.ts",
+    "db:migrate": "node --env-file-if-exists=.env scripts/migrate.ts",
+    "diagnostics": "node --env-file-if-exists=.env scripts/diagnostics.ts",
+    "legacy:audit": "node scripts/audit-legacy.ts",
+    "legacy:import": "node --env-file-if-exists=.env scripts/import-legacy.ts",
+    "legacy:files": "node --env-file-if-exists=.env scripts/import-legacy-files.ts",
+    "storage:init": "node --env-file-if-exists=.env scripts/init-storage.ts",
+    "storage:cors": "node --env-file-if-exists=.env scripts/storage-cors.ts",
+    "typecheck": "tsc --noEmit",
+    "openapi:export": "node scripts/export-openapi.ts",
+    "test:openapi": "node --test --test-name-pattern=OpenAPI test/adapters/http-server.test.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1152.0",
+    "@aws-sdk/s3-request-presigner": "^3.1152.0",
+    "@fastify/swagger": "^9.9.2",
+    "@fastify/swagger-ui": "^6.1.2",
+    "fastify": "^5.12.7",
+    "nodemailer": "^10.1.1",
+    "pg": "^8.16.3",
+    "sharp": "^0.35.5"
+  },
+  "devDependencies": {
+    "@apidevtools/swagger-parser": "^13.1.0",
+    "@types/node": "^24.0.0",
+    "@types/nodemailer": "^8.0.2",
+    "@types/pg": "^8.15.5",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "openapi-types": "^12.1.3",
+    "typescript": "^5.9.0"
+  }
+}

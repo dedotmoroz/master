@@ -1,0 +1,25 @@
+# Only the new application belongs in this repository.
+/naitimastera/
+/legacy-preview/
+/*.sql
+/*.sql.gz
+/*.dump
+/*.backup
+**/backups/
+**/node_modules/
+**/.next/
+/frontend/out/
+**/coverage/
+**/dist/
+**/.idea/
+**/.vscode/
+.DS_Store
+*.log
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+/frontend/*.jpg

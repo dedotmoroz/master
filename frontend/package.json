@@ -1,0 +1,17 @@
+{
+  "name": "naitimastera-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1 --port 4178",
+    "build": "next build",
+    "start": "node scripts/serve-static.mjs",
+    "test:export": "node --test test/static-export.test.mjs",
+    "check": "next typegen && tsc --noEmit",
+    "test": "node --experimental-strip-types --test test/*.test.ts test/public-proxy.test.mjs test/auth-proxy.test.mjs test/orders-proxy.test.mjs"
+  },
+  "dependencies": { "next": "16.4.2", "react": "19.3.1", "react-dom": "19.3.1" },
+  "devDependencies": { "typescript": "^5.9.3", "@types/node": "^24.0.0", "@types/react": "^19.0.0", "@types/react-dom": "^19.0.0" },
+  "engines": { "node": ">=24" }
+}

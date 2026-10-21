@@ -1,0 +1,44 @@
+name: naitimastera-core
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: naitimastera_test
+      POSTGRES_USER: naitimastera
+      POSTGRES_PASSWORD: naitimastera_test
+    ports:
+      - "127.0.0.1:55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U naitimastera -d naitimastera_test"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  storage:
+    image: rustfs/rustfs:latest
+    command: /data
+    environment:
+      RUSTFS_ACCESS_KEY: minioadmin
+      RUSTFS_SECRET_KEY: minioadmin
+      RUSTFS_ADDRESS: "0.0.0.0:9000"
+      RUSTFS_CONSOLE_ADDRESS: "0.0.0.0:9001"
+      RUSTFS_CONSOLE_ENABLE: "true"
+    ports:
+      - "127.0.0.1:59000:9000"
+      - "127.0.0.1:59001:9001"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/health"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    tmpfs:
+      - /data:uid=10001,gid=10001,mode=0770
+      - /logs:uid=10001,gid=10001,mode=0770
+
+  clamav:
+    image: clamav/clamav-debian:1.5
+    ports:
+      - "127.0.0.1:53310:3310"
