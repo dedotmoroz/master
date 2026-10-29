@@ -29,8 +29,13 @@ Before provisioning:
 The workflows pin the Raspberry Pi ED25519 fingerprint and publish only
 `linux/arm64` images. Backend and frontend have separate change filters,
 concurrency groups, builds and deploy jobs. During each deploy the short-lived
-workflow token is forwarded only to `docker login` through the SSH action and a
-temporary Docker config, so GHCR images may remain private.
+workflow token is streamed only to `docker login` and stored in a temporary
+Docker config, so GHCR images may remain private.
+
+The deploy jobs use the runner's OpenSSH client rather than downloading an SSH
+action binary. They accept only the server's ED25519 host key, verify its pinned
+SHA256 fingerprint, and stream the short-lived GHCR token over the encrypted
+SSH connection directly to `docker login`.
 
 ## One-time server setup
 
@@ -46,3 +51,14 @@ secrets, runs migrations and storage initialization, validates Nginx, and uses
 a graceful reload. It never edits SSH configuration. If required external
 secrets or the storage certificate are missing, it stops before starting the
 application or changing Nginx.
+
+If the application containers were deployed before the storage DNS/certificate
+was ready, activate only the main site with:
+
+```sh
+sudo bash /srv/naitimastera/activate-main-nginx.sh
+```
+
+That helper checks both application health endpoints and the MCP service,
+creates a timestamped backup, validates Nginx, and restores the backup if
+validation fails. It deliberately does not enable the storage virtual host.
