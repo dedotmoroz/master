@@ -102,7 +102,14 @@ jobs:
             docker compose -f production.compose.yml pull postgres storage clamav backend
             docker compose -f production.compose.yml up -d --wait postgres storage clamav
             docker compose -f production.compose.yml run --rm backend node scripts/migrate.ts
-            docker compose -f production.compose.yml run --rm backend node scripts/init-storage.ts
-            docker compose -f production.compose.yml run --rm backend node scripts/storage-cors.ts https://naitimastera.ru
+            # Bootstrap RustFS over the private Compose network. The running
+            # API still uses the public storage.naitimastera.ru endpoint when
+            # it signs browser upload and download URLs.
+            docker compose -f production.compose.yml run --rm \
+              -e STORAGE_ENDPOINT=http://storage:9000 \
+              backend node scripts/init-storage.ts
+            docker compose -f production.compose.yml run --rm \
+              -e STORAGE_ENDPOINT=http://storage:9000 \
+              backend node scripts/storage-cors.ts https://naitimastera.ru
             docker compose -f production.compose.yml up -d --no-deps --wait backend
             docker image prune -f --filter 'until=168h'

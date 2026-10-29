@@ -59,8 +59,12 @@ cd "$app_dir"
 docker compose -f production.compose.yml pull
 docker compose -f production.compose.yml up -d --wait postgres storage clamav
 docker compose -f production.compose.yml run --rm backend node scripts/migrate.ts
-docker compose -f production.compose.yml run --rm backend node scripts/init-storage.ts
-docker compose -f production.compose.yml run --rm backend node scripts/storage-cors.ts https://naitimastera.ru
+docker compose -f production.compose.yml run --rm \
+  -e STORAGE_ENDPOINT=http://storage:9000 \
+  backend node scripts/init-storage.ts
+docker compose -f production.compose.yml run --rm \
+  -e STORAGE_ENDPOINT=http://storage:9000 \
+  backend node scripts/storage-cors.ts https://naitimastera.ru
 docker compose -f production.compose.yml up -d --wait backend frontend
 
 main_backup="$main_site.pre-app.$(date +%Y%m%d%H%M%S)"
