@@ -70,37 +70,41 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
-      - name: Upload production Compose file
-        uses: appleboy/scp-action@v1.0.0
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
-          fingerprint: SHA256:6ilZRDABhfuGqcZQYFRqhGyls3Z6nqlatSKrnK7gDQc
-          source: deploy/production.compose.yml
-          target: /srv/naitimastera
-          strip_components: 1
-      - name: Deploy frontend
-        uses: appleboy/ssh-action@v1.2.5
+      - name: Configure pinned SSH connection
         env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          EXPECTED_HOST_FINGERPRINT: SHA256:6ilZRDABhfuGqcZQYFRqhGyls3Z6nqlatSKrnK7gDQc
+        run: |
+          set -euo pipefail
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 0600 "$HOME/.ssh/id_ed25519"
+          ssh-keyscan -T 10 -p "$SSH_PORT" -t ed25519 "$SSH_HOST" > "$HOME/.ssh/known_hosts"
+          actual_fingerprint=$(ssh-keygen -lf "$HOME/.ssh/known_hosts" | awk 'NR == 1 { print $2 }')
+          test "$actual_fingerprint" = "$EXPECTED_HOST_FINGERPRINT"
+
+      - name: Upload production deploy files
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          scp -P "$SSH_PORT" -i "$HOME/.ssh/id_ed25519" -o IdentitiesOnly=yes \
+            deploy/production.compose.yml deploy/deploy-frontend.sh \
+            "$SSH_USER@$SSH_HOST:/srv/naitimastera/"
+
+      - name: Deploy frontend
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+          SSH_USER: ${{ secrets.SSH_USER }}
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
-          fingerprint: SHA256:6ilZRDABhfuGqcZQYFRqhGyls3Z6nqlatSKrnK7gDQc
-          command_timeout: 10m
-          envs: GHCR_USER,GHCR_TOKEN
-          script: |
-            set -eu
-            docker_config=$(mktemp -d /tmp/naitimastera-docker-config.XXXXXX)
-            trap 'rm -rf "$docker_config"' EXIT
-            export DOCKER_CONFIG="$docker_config"
-            printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USER" --password-stdin
-            cd /srv/naitimastera
-            docker compose -f production.compose.yml pull frontend
-            docker compose -f production.compose.yml up -d --no-deps --wait frontend
-            docker image prune -f --filter 'until=168h'
+        run: |
+          remote_user=$(printf '%q' "$GHCR_USER")
+          printf '%s' "$GHCR_TOKEN" | ssh -p "$SSH_PORT" \
+            -i "$HOME/.ssh/id_ed25519" -o IdentitiesOnly=yes \
+            "$SSH_USER@$SSH_HOST" \
+            "bash /srv/naitimastera/deploy-frontend.sh $remote_user"
