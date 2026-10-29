@@ -1,0 +1,106 @@
+name: Frontend production
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - frontend/**
+      - deploy/production.compose.yml
+      - .github/workflows/frontend-production.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: naitimastera-frontend-production
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/naitimastera-frontend
+
+jobs:
+  verify-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Verify frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm test
+          npm run check
+
+      - uses: docker/setup-qemu-action@v4.4.0
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@v4.4.1
+      - uses: docker/login-action@v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v6.2.0
+        id: meta
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=long
+      - uses: docker/build-push-action@v7.4.0
+        with:
+          context: frontend
+          platforms: linux/arm64
+          push: true
+          build-args: |
+            NEXT_PUBLIC_TURNSTILE_SITE_KEY=${{ secrets.TURNSTILE_SITE_KEY }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=naitimastera-frontend
+          cache-to: type=gha,mode=max,scope=naitimastera-frontend
+
+  deploy:
+    needs: verify-and-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Upload production Compose file
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          fingerprint: SHA256:6ilZRDABhfuGqcZQYFRqhGyls3Z6nqlatSKrnK7gDQc
+          source: deploy/production.compose.yml
+          target: /srv/naitimastera
+          strip_components: 1
+      - name: Deploy frontend
+        uses: appleboy/ssh-action@v1.2.5
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          fingerprint: SHA256:6ilZRDABhfuGqcZQYFRqhGyls3Z6nqlatSKrnK7gDQc
+          command_timeout: 10m
+          envs: GHCR_USER,GHCR_TOKEN
+          script: |
+            set -eu
+            docker_config=$(mktemp -d /tmp/naitimastera-docker-config.XXXXXX)
+            trap 'rm -rf "$docker_config"' EXIT
+            export DOCKER_CONFIG="$docker_config"
+            printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USER" --password-stdin
+            cd /srv/naitimastera
+            docker compose -f production.compose.yml pull frontend
+            docker compose -f production.compose.yml up -d --no-deps --wait frontend
+            docker image prune -f --filter 'until=168h'

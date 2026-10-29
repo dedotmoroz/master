@@ -1,0 +1,108 @@
+name: naitimastera-production
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+  storage:
+    image: rustfs/rustfs:latest
+    command: /data
+    environment:
+      RUSTFS_ACCESS_KEY: ${STORAGE_ACCESS_KEY_ID}
+      RUSTFS_SECRET_KEY: ${STORAGE_SECRET_ACCESS_KEY}
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_CONSOLE_ENABLE: "false"
+    volumes:
+      - storage-data:/data
+      - storage-logs:/logs
+    ports:
+      - 127.0.0.1:59000:9000
+    healthcheck:
+      test: [CMD-SHELL, "curl -fsS http://127.0.0.1:9000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+
+  clamav:
+    image: clamav/clamav-debian:1.5
+    volumes:
+      - clamav-data:/var/lib/clamav
+    restart: unless-stopped
+
+  backend:
+    image: ghcr.io/dedotmoroz/naitimastera-backend:latest
+    env_file: ./.env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      TRUST_PROXY_HOPS: 1
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      PUBLIC_WEB_URL: https://naitimastera.ru
+      RUN_MIGRATIONS_ON_START: "false"
+      STORAGE_ENDPOINT: https://storage.naitimastera.ru
+      STORAGE_REGION: us-east-1
+      STORAGE_BUCKET: ${STORAGE_BUCKET}
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID}
+      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY}
+      STORAGE_FORCE_PATH_STYLE: "true"
+      MALWARE_SCANNER: clamav
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: 3310
+      MAIL_TRANSPORT: smtp
+    extra_hosts:
+      - storage.naitimastera.ru:host-gateway
+    depends_on:
+      postgres:
+        condition: service_healthy
+      storage:
+        condition: service_healthy
+      clamav:
+        condition: service_started
+    ports:
+      - 127.0.0.1:3000:3000
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  frontend:
+    image: ghcr.io/dedotmoroz/naitimastera-frontend:latest
+    environment:
+      API_UPSTREAM: backend:3000
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - 127.0.0.1:8080:8080
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  storage-data:
+  storage-logs:
+  clamav-data:

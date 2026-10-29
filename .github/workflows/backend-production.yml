@@ -1,0 +1,108 @@
+name: Backend production
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - backend/**
+      - deploy/production.compose.yml
+      - .github/workflows/backend-production.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: naitimastera-backend-production
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/naitimastera-backend
+
+jobs:
+  verify-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Verify backend
+        working-directory: backend
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+
+      - uses: docker/setup-qemu-action@v4.4.0
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@v4.4.1
+      - uses: docker/login-action@v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v6.2.0
+        id: meta
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=long
+      - uses: docker/build-push-action@v7.4.0
+        with:
+          context: backend
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=naitimastera-backend
+          cache-to: type=gha,mode=max,scope=naitimastera-backend
+
+  deploy:
+    needs: verify-and-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Upload production Compose file
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          fingerprint: SHA256:6ilZRDABhfuGqcZQYFRqhGyls3Z6nqlatSKrnK7gDQc
+          source: deploy/production.compose.yml
+          target: /srv/naitimastera
+          strip_components: 1
+      - name: Migrate and deploy backend
+        uses: appleboy/ssh-action@v1.2.5
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          fingerprint: SHA256:6ilZRDABhfuGqcZQYFRqhGyls3Z6nqlatSKrnK7gDQc
+          command_timeout: 20m
+          envs: GHCR_USER,GHCR_TOKEN
+          script: |
+            set -eu
+            docker_config=$(mktemp -d /tmp/naitimastera-docker-config.XXXXXX)
+            trap 'rm -rf "$docker_config"' EXIT
+            export DOCKER_CONFIG="$docker_config"
+            printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USER" --password-stdin
+            cd /srv/naitimastera
+            docker compose -f production.compose.yml pull postgres storage clamav backend
+            docker compose -f production.compose.yml up -d --wait postgres storage clamav
+            docker compose -f production.compose.yml run --rm backend node scripts/migrate.ts
+            docker compose -f production.compose.yml run --rm backend node scripts/init-storage.ts
+            docker compose -f production.compose.yml run --rm backend node scripts/storage-cors.ts https://naitimastera.ru
+            docker compose -f production.compose.yml up -d --no-deps --wait backend
+            docker image prune -f --filter 'until=168h'
