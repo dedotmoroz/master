@@ -20,5 +20,9 @@ test('export includes shell, not hardcoded sample orders or live database data',
   const html = await readFile(new URL('orders/index.html',output),'utf8');
   assert.doesNotMatch(html, /Укладка плитки в ванной комнате/);
   assert.match(html, /Фильтры/);
+  assert.match(html, /metrika\.yandex\.ru\/stat\/\?id=21668143/);
+  assert.match(html, /informer\.yandex\.ru\/informer\/21668143/);
+  assert.match(html, /mc\.yandex\.ru\/metrika\/tag\.js/);
+  assert.match(html, /ym\(21668143,'init'/);
   for (const name of ['logo.png','nm-back.gif','bg-add.png','sw-b-l.png']) assert.ok((await stat(new URL('assets/'+name,output))).size>0);
 });
