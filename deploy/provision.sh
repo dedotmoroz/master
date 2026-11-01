@@ -10,6 +10,7 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 deploy_dir="$repo_root/deploy"
 app_dir=/srv/naitimastera
 deploy_user=${SUDO_USER:-pi}
+source "$deploy_dir/compose-command.sh"
 main_site=/etc/nginx/sites-available/naitimastera.ru
 storage_site=/etc/nginx/sites-available/storage.naitimastera.ru
 
@@ -29,6 +30,8 @@ usermod -aG docker "$deploy_user"
 
 install -d -o root -g docker -m 0775 "$app_dir"
 install -o root -g docker -m 0664 "$deploy_dir/production.compose.yml" "$app_dir/production.compose.yml"
+install -o root -g docker -m 0664 "$deploy_dir/compose-command.sh" "$app_dir/compose-command.sh"
+install -o root -g docker -m 0664 "$deploy_dir/mail/mail.compose.yml" "$app_dir/mail.compose.yml"
 
 if [[ ! -e "$app_dir/.env" ]]; then
   install -o root -g docker -m 0640 "$deploy_dir/.env.production.example" "$app_dir/.env"
@@ -44,7 +47,7 @@ if [[ ! -e "$app_dir/.env" ]]; then
     "$app_dir/.env"
 fi
 
-if grep -q 'replace-with-' "$app_dir/.env"; then
+if { if [[ -e "$app_dir/.mail-enabled" ]]; then grep -v '^SMTP_' "$app_dir/.env"; else grep '^' "$app_dir/.env"; fi; } | grep -q 'replace-with-'; then
   echo "Docker is installed, but production secrets are incomplete in $app_dir/.env" >&2
   echo "Set Turnstile and SMTP values, then run this script again." >&2
   exit 2
@@ -56,16 +59,16 @@ if [[ ! -f /etc/letsencrypt/live/storage.naitimastera.ru/fullchain.pem ]]; then
 fi
 
 cd "$app_dir"
-docker compose -f production.compose.yml pull
-docker compose -f production.compose.yml up -d --wait postgres storage clamav
-docker compose -f production.compose.yml run --rm backend node scripts/migrate.ts
-docker compose -f production.compose.yml run --rm \
+app_compose pull
+app_compose up -d --wait postgres storage clamav
+app_compose run --rm backend node scripts/migrate.ts
+app_compose run --rm \
   -e STORAGE_ENDPOINT=http://storage:9000 \
   backend node scripts/init-storage.ts
-docker compose -f production.compose.yml run --rm \
+app_compose run --rm \
   -e STORAGE_ENDPOINT=http://storage:9000 \
   backend node scripts/storage-cors.ts https://naitimastera.ru
-docker compose -f production.compose.yml up -d --wait backend frontend
+app_compose up -d --wait backend frontend
 
 main_backup="$main_site.pre-app.$(date +%Y%m%d%H%M%S)"
 cp -a "$main_site" "$main_backup"

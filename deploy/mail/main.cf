@@ -1,0 +1,47 @@
+# Managed by naitimastera mail installer. Outbound-only, private submission.
+compatibility_level = 3.6
+myhostname = mail.naitimastera.ru
+mydomain = naitimastera.ru
+myorigin = $mydomain
+mydestination = $myhostname, localhost.$mydomain, localhost
+relayhost =
+relay_domains =
+inet_protocols = ipv4
+inet_interfaces = 127.0.0.1, 172.30.25.1
+mynetworks = 127.0.0.1/32, 172.30.25.2/32
+smtpd_client_restrictions = permit_mynetworks, reject
+smtpd_relay_restrictions = permit_mynetworks, reject
+smtpd_recipient_restrictions = reject_unauth_pipelining
+smtpd_sender_restrictions = check_sender_access regexp:/etc/postfix/naitimastera-senders
+smtpd_helo_required = yes
+smtpd_sasl_auth_enable = no
+disable_vrfy_command = yes
+smtpd_etrn_restrictions = reject
+smtpd_tls_security_level = none
+# Submission is plaintext ONLY on loopback and the dedicated private Docker bridge.
+# No passwords cross this connection. Internet delivery requires STARTTLS.
+smtp_tls_security_level = encrypt
+smtp_tls_CAfile = /etc/ssl/certs/ca-certificates.crt
+smtp_tls_loglevel = 1
+smtp_helo_name = $myhostname
+smtpd_milters = inet:127.0.0.1:8891
+non_smtpd_milters = $smtpd_milters
+milter_default_action = tempfail
+milter_protocol = 6
+message_size_limit = 1048576
+mailbox_size_limit = 10485760
+default_process_limit = 10
+smtp_destination_concurrency_limit = 2
+smtp_destination_rate_delay = 1s
+anvil_rate_time_unit = 60s
+smtpd_client_message_rate_limit = 20
+smtpd_client_event_limit_exceptions =
+smtpd_recipient_limit = 10
+maximal_queue_lifetime = 1d
+bounce_queue_lifetime = 1d
+queue_minfree = 1073741824
+alias_maps = hash:/etc/aliases
+alias_database = hash:/etc/aliases
+recipient_delimiter = +
+# Installation does NOT send queued mail. Enable only after DNS/review.
+defer_transports = smtp

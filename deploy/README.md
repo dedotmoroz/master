@@ -15,6 +15,10 @@ URLs cannot safely be placed behind an arbitrary path prefix.
 
 ## Required external setup
 
+For an optional host-based outbound Postfix + DKIM installation, see
+[mail/README.md](mail/README.md). The installer is run manually with sudo;
+it does not change the active application deployment or publish DNS records.
+
 Before provisioning:
 
 1. Point `storage.naitimastera.ru` to the Raspberry Pi and obtain its Let's

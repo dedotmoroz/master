@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source "$(dirname -- "${BASH_SOURCE[0]}")/compose-command.sh"
 
 ghcr_user=${1:?GitHub Container Registry username is required}
 docker_config=$(mktemp -d /tmp/naitimastera-docker-config.XXXXXX)
@@ -8,18 +9,17 @@ export DOCKER_CONFIG="$docker_config"
 
 docker login ghcr.io --username "$ghcr_user" --password-stdin
 cd /srv/naitimastera
-docker compose -f production.compose.yml pull postgres storage clamav backend
-docker compose -f production.compose.yml up -d --wait postgres storage clamav
-docker compose -f production.compose.yml run --rm backend node scripts/migrate.ts
+# Regular application updates must not recreate infrastructure or change S3 CORS.
+# Initial provisioning/bootstrap remains in provision.sh.
+for service in postgres storage clamav; do
+  dependency_id=$(app_compose ps -q "$service")
+  if [[ -z "$dependency_id" ]] || [[ $(docker inspect -f '{{.State.Running}}' "$dependency_id") != true ]]; then
+    echo "Required dependency $service is not running; refusing to start or replace it during backend deploy." >&2
+    exit 1
+  fi
+done
+app_compose pull backend
+app_compose run --rm --no-deps backend node scripts/migrate.ts
 
-# Bootstrap RustFS over the private Compose network. The running API still
-# signs browser URLs against the public storage.naitimastera.ru endpoint.
-docker compose -f production.compose.yml run --rm \
-  -e STORAGE_ENDPOINT=http://storage:9000 \
-  backend node scripts/init-storage.ts
-docker compose -f production.compose.yml run --rm \
-  -e STORAGE_ENDPOINT=http://storage:9000 \
-  backend node scripts/storage-cors.ts https://naitimastera.ru
-
-docker compose -f production.compose.yml up -d --no-deps --wait backend
-docker image prune -f --filter 'until=168h'
+app_compose up -d --no-deps --wait backend
+# Keep old images available for rollback; no global image pruning here.

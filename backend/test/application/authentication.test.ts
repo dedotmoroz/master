@@ -127,11 +127,55 @@ test("Outbox handler reconstructs the deterministic email token", async () => {
   const handler = new EmailAuthenticationRequestedHandler({
     requests: context.requests,
     tokens: context.tokens,
+    clock: context.services,
     email: { sendAuthenticationLink: async (message) => { messages.push(message); } },
   });
   await handler.execute(request.id);
   assert.equal(messages.length, 1);
   assert.equal((messages[0] as { rawToken: string }).rawToken, context.tokens.issue(`email-auth:${request.id}`).raw);
+});
+
+test("Delayed authentication email skips expired requests but preserves the valid expiry boundary", async () => {
+  for (const offsetMs of [-1, 0, 1]) {
+    const context = fixture();
+    await context.request.execute({ email: "expiry@example.com", purpose: "registration", clientAddress: "127.0.0.1" });
+    const request = [...context.requests.items.values()][0]!;
+    context.services.current = new Date(request.expiresAt.getTime() + offsetMs);
+    let sends = 0;
+    const handler = new EmailAuthenticationRequestedHandler({
+      requests: context.requests, tokens: context.tokens, clock: context.services,
+      email: { sendAuthenticationLink: async () => { sends++; } },
+    });
+    await handler.execute(request.id);
+    assert.equal(sends, offsetMs > 0 ? 0 : 1);
+    assert.equal(request.status, "pending");
+    assert.equal(context.requests.items.has(request.id), true);
+  }
+});
+
+test("Expired authentication retries finish even after a token secret change", async () => {
+  const context = fixture();
+  await context.request.execute({ email: "expired@example.com", purpose: "registration", clientAddress: "127.0.0.1" });
+  const request = [...context.requests.items.values()][0]!;
+  context.services.current = new Date(request.expiresAt.getTime() + 1);
+  const handler = new EmailAuthenticationRequestedHandler({
+    requests: context.requests, clock: context.services,
+    tokens: { issue: () => { throw new Error("Must not reconstruct expired tokens"); }, hash: () => "unused" },
+    email: { sendAuthenticationLink: async () => { assert.fail("Must not send expired mail"); } },
+  });
+  await handler.execute(request.id);
+});
+
+test("Unexpired authentication mail still rejects a token hash mismatch", async () => {
+  const context = fixture();
+  await context.request.execute({ email: "valid@example.com", purpose: "registration", clientAddress: "127.0.0.1" });
+  const request = [...context.requests.items.values()][0]!;
+  const handler = new EmailAuthenticationRequestedHandler({
+    requests: context.requests, clock: context.services,
+    tokens: { issue: () => ({ raw: "different", hash: "different" }), hash: () => "different" },
+    email: { sendAuthenticationLink: async () => { assert.fail("Must not send a mismatched token"); } },
+  });
+  await assert.rejects(handler.execute(request.id), /does not match persisted hash/);
 });
 
 test("Authentication requests are rate limited by both client address and normalized email", async () => {

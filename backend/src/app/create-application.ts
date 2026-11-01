@@ -387,6 +387,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
       requests: emailAuthRequests,
       tokens,
       email,
+      clock,
     });
     let closed = false;
     const processOutbox = new ProcessOutboxBatchHandler(

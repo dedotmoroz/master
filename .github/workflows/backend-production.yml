@@ -6,6 +6,9 @@ on:
     paths:
       - backend/**
       - deploy/production.compose.yml
+      - deploy/compose-command.sh
+      - deploy/deploy-backend.sh
+      - deploy/mail/mail.compose.yml
       - .github/workflows/backend-production.yml
   workflow_dispatch:
 
@@ -91,6 +94,7 @@ jobs:
         run: |
           scp -P "$SSH_PORT" -i "$HOME/.ssh/id_ed25519" -o IdentitiesOnly=yes \
             deploy/production.compose.yml deploy/deploy-backend.sh \
+            deploy/compose-command.sh deploy/mail/mail.compose.yml \
             "$SSH_USER@$SSH_HOST:/srv/naitimastera/"
 
       - name: Migrate and deploy backend

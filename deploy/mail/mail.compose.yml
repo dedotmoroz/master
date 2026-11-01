@@ -1,0 +1,20 @@
+# Use AFTER sudo install-mail.sh, alongside ../production.compose.yml.
+services:
+  backend:
+    environment:
+      MAIL_TRANSPORT: smtp
+      SMTP_HOST: 172.30.25.1
+      SMTP_PORT: "25"
+      SMTP_SECURE: "false"
+      SMTP_USER: ""
+      SMTP_PASSWORD: ""
+      SMTP_FROM: "Найти мастера <no-reply@naitimastera.ru>"
+    networks:
+      default: {}
+      mail:
+        ipv4_address: 172.30.25.2
+
+networks:
+  mail:
+    name: naitimastera-mail
+    external: true

@@ -151,20 +151,26 @@ export class EmailAuthenticationRequestedHandler {
   readonly #requests: EmailAuthRequestRepository;
   readonly #tokens: VerificationTokenService;
   readonly #email: AuthenticationEmailSender;
+  readonly #clock: Clock;
 
   constructor(dependencies: Readonly<{
     requests: EmailAuthRequestRepository;
     tokens: VerificationTokenService;
     email: AuthenticationEmailSender;
+    clock: Clock;
   }>) {
     this.#requests = dependencies.requests;
     this.#tokens = dependencies.tokens;
     this.#email = dependencies.email;
+    this.#clock = dependencies.clock;
   }
 
   async execute(requestId: string): Promise<void> {
     const request = await this.#requests.findById(requestId);
     if (!request || request.status !== "pending") return;
+    // A delayed retry must not deliver a dead login link. Returning normally lets
+    // the outbox worker finish the obsolete event without sending or deleting it.
+    if (this.#clock.now() > request.expiresAt) return;
     const token = this.#tokens.issue(`email-auth:${request.id}`);
     if (token.hash !== request.tokenHash) throw new Error("Generated authentication token does not match persisted hash");
     await this.#email.sendAuthenticationLink({

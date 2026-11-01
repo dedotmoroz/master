@@ -6,6 +6,9 @@ on:
     paths:
       - frontend/**
       - deploy/production.compose.yml
+      - deploy/compose-command.sh
+      - deploy/deploy-frontend.sh
+      - deploy/mail/mail.compose.yml
       - .github/workflows/frontend-production.yml
   workflow_dispatch:
 
@@ -93,6 +96,7 @@ jobs:
         run: |
           scp -P "$SSH_PORT" -i "$HOME/.ssh/id_ed25519" -o IdentitiesOnly=yes \
             deploy/production.compose.yml deploy/deploy-frontend.sh \
+            deploy/compose-command.sh deploy/mail/mail.compose.yml \
             "$SSH_USER@$SSH_HOST:/srv/naitimastera/"
 
       - name: Deploy frontend
